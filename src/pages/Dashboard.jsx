@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { CloudUpload, Loader2, Mic, X, Check, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,6 +7,7 @@ const Dashboard = () => {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -23,50 +23,63 @@ const Dashboard = () => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    const file = e.dataTransfer.files[0];
-    validateAndSetFile(file);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      validateAndSetFile(e.dataTransfer.files[0]);
+    }
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    validateAndSetFile(file);
+    if (e.target.files && e.target.files[0]) {
+      validateAndSetFile(e.target.files[0]);
+    }
   };
 
   const validateAndSetFile = (file) => {
-    if (file && (file.type === 'audio/wav' || file.type === 'audio/mp3' || file.name.endsWith('.wav') || file.name.endsWith('.mp3'))) {
+    const validTypes = ['audio/wav', 'audio/mpeg'];
+    const validExtensions = ['.wav', '.mp3'];
+    const fileExtension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+
+    if (validTypes.includes(file.type) || validExtensions.includes(fileExtension)) {
       setSelectedFile(file);
       setResult(null);
+      setError(null);
     } else {
-      alert('Please upload a WAV or MP3 audio file.');
+      setError('Please upload a WAV or MP3 audio file.');
     }
   };
 
   const handleUpload = async () => {
     if (!selectedFile) {
-      alert('No file selected.');
+      setError('No file selected.');
       return;
     }
 
     setLoading(true);
+    setError(null);
     const formData = new FormData();
     formData.append('file', selectedFile);
 
     try {
-      // Simulate API call (replace with your actual API endpoint)
-      const response = await fetch('http://localhost:5000/predict', {
+      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/predict`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Server error during prediction');
+        throw new Error(`Server error: ${response.status}`);
       }
 
       const data = await response.json();
-      setResult(data.result);
-    } catch (error) {
-      console.error(error);
-      setResult({ error: 'Prediction failed. Please try again.' });
+      
+      if (!data.CNN || !data.DNN || !data.confidence) {
+        throw new Error('Invalid response format from server');
+      }
+
+      setResult(data);
+    } catch (err) {
+      console.error('Prediction error:', err);
+      setError(err.message || 'Prediction failed. Please try again.');
+      setResult(null);
     } finally {
       setLoading(false);
     }
@@ -75,10 +88,11 @@ const Dashboard = () => {
   const removeFile = () => {
     setSelectedFile(null);
     setResult(null);
+    setError(null);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50 flex items-center justify-center p-4 mt-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50 flex items-center justify-center p-4">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -93,6 +107,7 @@ const Dashboard = () => {
         </div>
 
         <div className="p-8">
+          {/* File Upload Area */}
           <div 
             className={`border-2 border-dashed rounded-xl transition-all duration-300 ${
               dragActive ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'
@@ -108,7 +123,7 @@ const Dashboard = () => {
                 {selectedFile ? selectedFile.name : 'Drag & drop audio file here'}
               </p>
               <p className="text-sm text-gray-500 mb-4">
-                Supported formats: .wav
+                Supported formats: .wav, .mp3
               </p>
               <div className="relative">
                 <button className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
@@ -116,7 +131,7 @@ const Dashboard = () => {
                 </button>
                 <input
                   type="file"
-                  accept=".wav"
+                  accept=".wav,.mp3,audio/wav,audio/mpeg"
                   onChange={handleFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
@@ -124,6 +139,19 @@ const Dashboard = () => {
             </label>
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 p-3 bg-red-50 text-red-600 rounded-lg flex items-center"
+            >
+              <AlertTriangle className="mr-2" size={18} />
+              <span>{error}</span>
+            </motion.div>
+          )}
+
+          {/* Selected File Preview */}
           <AnimatePresence>
             {selectedFile && (
               <motion.div
@@ -137,7 +165,7 @@ const Dashboard = () => {
                     <Mic className="text-indigo-600" size={20} />
                   </div>
                   <div>
-                    <p className="font-medium text-gray-800">{selectedFile.name}</p>
+                    <p className="font-medium text-gray-800 truncate max-w-xs">{selectedFile.name}</p>
                     <p className="text-xs text-gray-500">
                       {(selectedFile.size / 1024).toFixed(2)} KB
                     </p>
@@ -146,6 +174,7 @@ const Dashboard = () => {
                 <button
                   onClick={removeFile}
                   className="p-1 text-gray-500 hover:text-red-500 transition"
+                  aria-label="Remove file"
                 >
                   <X size={18} />
                 </button>
@@ -153,6 +182,7 @@ const Dashboard = () => {
             )}
           </AnimatePresence>
 
+          {/* Analyze Button */}
           <button
             onClick={handleUpload}
             disabled={!selectedFile || loading}
@@ -175,77 +205,76 @@ const Dashboard = () => {
             )}
           </button>
 
+          {/* Results Display */}
           <AnimatePresence>
             {result && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className={`mt-8 p-6 rounded-xl ${
-                  result.error ? 'bg-red-50' : 'bg-green-50'
-                }`}
+                className="mt-8 p-6 bg-green-50 rounded-xl"
               >
-                {result.error ? (
-                  <div className="flex flex-col items-center text-center">
-                    <div className="p-2 bg-red-100 rounded-full mb-3">
-                      <AlertTriangle className="text-red-600" size={24} />
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="p-2 bg-green-100 rounded-full inline-flex mb-3">
+                      <Check className="text-green-600" size={24} />
                     </div>
-                    <h3 className="text-xl font-bold text-red-700 mb-1">Error</h3>
-                    <p className="text-red-600">{result.error}</p>
+                    <h3 className="text-xl font-bold text-gray-800 mb-1">
+                      Analysis Complete
+                    </h3>
+                    <p className="text-gray-600">
+                      Results for your audio file
+                    </p>
                   </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="text-center">
-                      <div className="p-2 bg-green-100 rounded-full inline-flex mb-3">
-                        <Check className="text-green-600" size={24} />
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-800 mb-1">
-                        Analysis Complete
-                      </h3>
-                      <p className="text-gray-600">
-                        Results for your audio file
-                      </p>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                        <h4 className="font-medium text-gray-500 mb-2">CNN Prediction</h4>
-                        <div className="flex items-center">
-                          <div className="w-full bg-gray-200 rounded-full h-2.5 mr-2">
-                            <div
-                              className="bg-blue-600 h-2.5 rounded-full"
-                              style={{ width: `${result.CNN}` }}
-                            ></div>
-                          </div>
-                          <span className="text-blue-600 font-bold">
-                            {(result.CNN)}
-                          </span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* CNN Result */}
+                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                      <h4 className="font-medium text-gray-500 mb-2">CNN Prediction</h4>
+                      <div className="flex items-center">
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 mr-2">
+                          <div
+                            className={`h-2.5 rounded-full ${
+                              result.CNN === 'Real' ? 'bg-green-500' : 'bg-red-500'
+                            }`}
+                            style={{ width: `${result.confidence.CNN * 100}%` }}
+                          ></div>
                         </div>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                        <h4 className="font-medium text-gray-500 mb-2">DNN Prediction</h4>
-                        <div className="flex items-center">
-                          <div className="w-full bg-gray-200 rounded-full h-2.5 mr-2">
-                            <div
-                              className="bg-purple-600 h-2.5 rounded-full"
-                              style={{ width: `${result.DNN}` }}
-                            ></div>
-                          </div>
-                          <span className="text-purple-600 font-bold">
-                            {(result.DNN)}
-                          </span>
-                        </div>
+                        <span className={`font-bold ${
+                          result.CNN === 'Real' ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {result.CNN} ({(result.confidence.CNN * 100).toFixed(1)}%)
+                        </span>
                       </div>
                     </div>
 
-                    <div className="mt-4 text-center">
-                      <p className="text-sm text-gray-500">
-                        Higher percentages indicate higher confidence of deepfake detection
-                      </p>
+                    {/* DNN Result */}
+                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                      <h4 className="font-medium text-gray-500 mb-2">DNN Prediction</h4>
+                      <div className="flex items-center">
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 mr-2">
+                          <div
+                            className={`h-2.5 rounded-full ${
+                              result.DNN === 'Real' ? 'bg-green-500' : 'bg-red-500'
+                            }`}
+                            style={{ width: `${result.confidence.DNN * 100}%` }}
+                          ></div>
+                        </div>
+                        <span className={`font-bold ${
+                          result.DNN === 'Real' ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {result.DNN} ({(result.confidence.DNN * 100).toFixed(1)}%)
+                        </span>
+                      </div>
                     </div>
                   </div>
-                )}
+
+                  <div className="mt-4 text-center">
+                    <p className="text-sm text-gray-500">
+                      Confidence scores show the model's certainty in its prediction
+                    </p>
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
